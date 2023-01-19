@@ -1,0 +1,252 @@
+<html>
+<head>
+    <title>POMSA - Poor old mans sports app</title>
+    <script>
+        const url = "<DATA_RECEIVER_URL>"
+        const API_KEY = "<API_KEY>"
+
+        let poly;
+        let map;
+        let mapZoom = 19;
+        let tracking_number_ts = Date.now();
+        let globalMarker
+
+        gpsOptions = {
+            enableHighAccuracy: true,
+            timeout: 1000,
+            maximumAge: 0
+        };
+
+        function loadGoogleMaps(){
+            let gmaps = document.createElement('script');
+            gmaps.setAttribute("type", "text/javascript");
+            gmaps.setAttribute("src", "https://maps.googleapis.com/maps/api/js?key=" + API_KEY + "&callback=initMap");
+            (document.getElementsByTagName("head")[0] || document.documentElement).appendChild(gmaps);
+        }
+
+        function setZoom() {
+            map.setZoom(mapZoom)
+        }
+
+        function pinSymbol(color) {
+            return {
+                path: 'M 0,0 C -2,-20 -10,-22 -10,-30 A 10,10 0 1,1 10,-30 C 10,-22 2,-20 0,0 z M -2,-30 a 2,2 0 1,1 4,0 2,2 0 1,1 -4,0',
+                fillColor: color,
+                fillOpacity: 1,
+                strokeColor: '#000',
+                strokeWeight: 2,
+                scale: 2,
+            };
+        }
+
+        function setGlobalMarker(position, color) {
+            globalMarker = new google.maps.Marker({
+                map: map,
+                position: position,
+                icon: pinSymbol(color)
+            });
+        }
+
+        function startTracking() {
+            let geoData = document.getElementById("geoData");
+            geoData.innerHTML = "App started!";
+
+            if (navigator.geolocation) {
+                navigator.geolocation.watchPosition(showPosition, error, gpsOptions);
+            } else {
+                geoData.innerHTML = "Geolocation is not supported by this browser.";
+            }
+        }
+
+        function currentPos() {
+            let geoData = document.getElementById("geoData");
+            geoData.innerHTML = "Show current!";
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(setMapsToCenterAndPrintGeoData, error, gpsOptions);
+            }
+        }
+
+        function error(err) {
+            console.error(err);
+        }
+
+        function showPosition(position) {
+            let accuracy = position.coords.accuracy;
+
+            if (accuracy > 20) {
+                return ;
+            }
+
+            addLatLngToPath(
+                {
+                    lat: function() {
+                        return position.coords.latitude
+                    },
+                    lng: function () {
+                        return position.coords.longitude
+                    }
+                })
+
+            //sendData(position)
+            setMapsToCenterAndPrintGeoData(position)
+        }
+
+        function setMapsToCenterAndPrintGeoData(position) {
+            printGeoData(position)
+            map.setCenter({ lat:position.coords.latitude, lng:position.coords.longitude })
+            map.setZoom(mapZoom)
+        }
+
+        function sendData(position) {
+            let coords = {
+                lat: position.coords.latitude,
+                lon: position.coords.longitude,
+                accuracy: position.coords.accuracy,
+                heading: position.coords.heading,
+                timestamp: position.timestamp,
+                tracking_number: tracking_number_ts
+            }
+
+            let post = JSON.stringify(coords)
+            let xhr = new XMLHttpRequest()
+
+            xhr.open('POST', url, true)
+            xhr.setRequestHeader('Content-type', 'application/json; charset=UTF-8')
+            xhr.send(post);
+
+            xhr.onload = function () {
+                if(xhr.status === 201) {
+                    console.log("Post successfully created!")
+                }
+            }
+        }
+
+        function printGeoData(position) {
+            let geoData = document.getElementById("geoData");
+            geoData.innerHTML = "Latitude: " + position.coords.latitude +
+                "<br>Longitude: " + position.coords.longitude +
+                "<br>Accuracy: " + position.coords.accuracy +
+                "<br>Altitude: " + position.coords.altitude +
+                "<br>AltitudeAccuracy: " + position.coords.altitudeAccuracy +
+                "<br>Heading: " + position.coords.heading +
+                "<br>Speed: " + position.coords.speed +
+                "<br>Timestamp: " + position.timestamp;
+        }
+
+        function initMap() {
+            map = new google.maps.Map(document.getElementById("map"), {
+                zoom: mapZoom,
+                streetViewControl: false,
+                controlSize: 100
+            });
+
+            currentPos();
+
+            poly = new google.maps.Polyline({
+                strokeColor: "#000000",
+                strokeOpacity: 1.0,
+                strokeWeight: 3,
+            });
+            poly.setMap(map);
+
+            map.addListener("zoom_changed", () => {
+                mapZoom = map.getZoom();
+            });
+        }
+
+        function addLatLngToPath(position) {
+            const path = poly.getPath();
+            path.push(position);
+        }
+
+        function printCurrentAddress() {
+            let address = document.getElementById("address");
+            address.innerHTML = "Loading address";
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition((position) => {
+                    let latlng = new google.maps.LatLng(position.coords.latitude, position.coords.longitude);
+                    let geocoder = new google.maps.Geocoder();
+                    geocoder.geocode({ 'latLng': latlng },  (results, status) => {
+                        if (status !== google.maps.GeocoderStatus.OK) {
+                            alert('Geocode was not successful for the following reason: ' + status);
+                        }
+                        if (status === google.maps.GeocoderStatus.OK) {
+                            console.log(results);
+                            address.innerHTML = results[0].formatted_address;
+                            setGlobalMarker(results[0].geometry.location, "crimson")
+                        }
+                    });
+                }, error, gpsOptions);
+            }
+        }
+
+        function addressToLatLng() {
+            let address = document.getElementById('addressInput').value;
+            let geocoder = new google.maps.Geocoder();
+            geocoder.geocode( { 'address': address }, (results, status) => {
+                if (status === google.maps.GeocoderStatus.OK) {
+                    map.setCenter(results[0].geometry.location);
+                    setGlobalMarker(results[0].geometry.location, "green")
+                } else {
+                    alert('Geocode was not successful for the following reason: ' + status);
+                }
+            });
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            loadGoogleMaps();
+        });
+
+        window.initMap = initMap;
+    </script>
+    <style>
+        td {
+            word-wrap: break-word;
+            overflow-x: auto;
+
+        }
+    </style>
+</head>
+<body>
+    <table border="1" style="table-layout:fixed; width: 100%; height: 100%;">
+        <tr style="height: 100%">
+            <td colspan="2" style="height: 100%">
+                <div id="map" style="height: 100%;"></div>
+            </td>
+        </tr>
+        <tr style="height: 250px;">
+            <td>
+                <table border="1"  style="table-layout:fixed; width: 100%; height: 100%;">
+                    <tr style="height: 80px">
+                        <td>
+                            <button style="height: 80px; width: 350px; font-size: 50px; background-color: green" onclick="addressToLatLng()">Find address</button>
+                            <input style="height: 80px; width: 100%; font-size: 50px;" type="text" id="addressInput" />
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <div id="address" style="background-color: bisque; height: 80px; font-size: 30px;">&nbsp;</div>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+            <td>
+                <div id="geoData"></div>
+            </td>
+        </tr>
+        <tr style="height: 80px;">
+            <td>
+                <button style="height: 80px; width: 270px; font-size: 50px; background-color: crimson;" onclick="printCurrentAddress()">Curr addr</button>
+                &nbsp;&nbsp;&nbsp;
+                <button style="height: 80px; width: 150px; font-size: 50px;" onclick="window.location.href = location.protocol + '//' + location.host + location.pathname + '?' + Date.now()">Reset</button>
+            </td>
+            <td>
+                <button style="height: 80px; width: 200px; font-size: 50px;" onclick="currentPos()">Current</button>
+                &nbsp;&nbsp;&nbsp;
+                <button style="height: 80px; width: 200px; font-size: 50px;" onclick="startTracking()">Track</button>
+                &nbsp;&nbsp;&nbsp;
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
